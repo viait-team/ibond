@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>I-Bond Strategic Analyzer</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            /* These variables are still useful for the HTML UI (buttons), 
+               but we will use JS constants for the SVG elements */
+            --bg: #1e1e1e;
+            --panel: #252526;
+            --accent: #4daafc;
+            --fixed-bar: #00b894;
+            --inf-line: #ff7675;
+            --text-main: #f1f1f1;
+            --text-sub: #a0a0a0;
+            --border: #3a3a3a;
+            --zero-rate: #555555;
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--bg);
+            color: var(--text-main);
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .icon-bar {
+            height: 48px;
+            background-color: var(--panel);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 12px;
+            flex-shrink: 0;
+            z-index: 10;
+        }
+
+        .icon-btn {
+            background: #2d2d2d;
+            border: 1px solid #444;
+            color: var(--text-main);
+            cursor: pointer;
+            height: 32px;
+            padding: 0 14px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .icon-btn:hover {
+            background-color: #444;
+            border-color: #666;
+        }
+
+        .icon-btn.active-mode {
+            background-color: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .icon-btn.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .separator {
+            width: 1px;
+            height: 20px;
+            background: #555;
+            margin: 0 5px;
+        }
+
+        .status-msg {
+            margin-left: auto;
+            font-size: 12px;
+            color: var(--text-sub);
+            font-family: monospace;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        #main-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #chart-area {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            background-color: var(--bg);
+        }
+
+        .tooltip {
+            position: absolute;
+            background: rgba(10, 10, 10, 0.95);
+            border: 1px solid #666;
+            padding: 10px;
+            border-radius: 4px;
+            pointer-events: none;
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.05s;
+            z-index: 2000;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.6);
+            min-width: 160px;
+        }
+
+        .placeholder {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: var(--text-sub);
+        }
+
+        .placeholder i {
+            font-size: 64px;
+            margin-bottom: 15px;
+            opacity: 0.2;
+        }
+
+
+
+        .axis path,
+        .axis line {
+            stroke: #333;
+        }
+
+        .grid-line {
+            stroke: #333;
+            stroke-dasharray: 2;
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .panel-divider {
+            stroke: #444;
+            stroke-width: 1;
+        }
+
+
+
+        /* --- STYLES FOR CHART ELEMENTS --- */
+
+        /* 1. Stairs Mode */
+        .bond-line {
+            fill: none;
+            stroke-width: 1.5;
+            opacity: 0.6;
+            transition: 0.1s;
+        }
+
+        .bond-line.dimmed {
+            opacity: 0.05;
+        }
+
+        .bond-line.highlighted {
+            stroke-width: 3;
+            opacity: 1;
+            z-index: 100;
+            filter: drop-shadow(0 0 4px black);
+        }
+
+        /* 2. Markers Mode */
+        .marker-group {
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+
+        .marker-group.highlighted {
+            opacity: 1;
+            z-index: 1000;
+        }
+
+        .marker-group.dimmed {
+            opacity: 0.05;
+        }
+
+        .marker-point {
+            stroke: inherit;
+            fill: inherit;
+            stroke-width: 1px;
+            transition: transform 0.1s;
+            cursor: crosshair;
+            transform-box: fill-box;
+            transform-origin: center;
+        }
+
+        .marker-point:hover {
+            stroke-width: 2px;
+            transform: scale(3.0);
+        }
+
+        .marker-group.highlighted .marker-point {
+            stroke-width: 2px;
+            transform: scale(1.5);
+        }
+
+        /* Panels */
+        .fixed-bar {
+            transition: 0.1s;
+        }
+
+        .fixed-bar.dimmed {
+            opacity: 0.2;
+        }
+
+        .fixed-bar.highlighted {
+            fill: #fff !important;
+            opacity: 1;
+        }
+
+        .right-row {
+            cursor: default;
+            transition: 0.1s;
+        }
+
+
+
+        .right-row path {
+            transition: 0.1s;
+        }
+
+        .right-row.dimmed {
+            opacity: 0.2;
+        }
+
+        .right-row.highlighted text {
+            fill: #fff !important;
+            font-size: 12px;
+            text-shadow: 0 0 5px black;
+        }
+
+        .right-row.highlighted path {
+            stroke: #fff;
+            stroke-width: 1px;
+        }
+
+        /* Inflation Dots Highlighting */
+        .inf-dot {
+            transition: all 0.2s;
+            stroke: none;
+        }
+
+        /* Note: We use specific JS colors for SVG export, but these classes handle interaction */
+        .inf-dot.highlighted {
+            fill: #fff !important;
+            r: 5;
+            opacity: 1;
+            stroke: #ff7675;
+            /* manually match JS color */
+            stroke-width: 2px;
+            filter: drop-shadow(0 0 3px #000);
+        }
+
+        /* NEW: Dynamic Current Rate Label */
+        .dynamic-label text {
+            fill: #fff;
+            paint-order: stroke;
+            stroke: #1e1e1e;
+            stroke-width: 4px;
+            stroke-linejoin: round;
+        }
+
+        .formula-box text {
+            fill: #ddd;
+            opacity: 0.8;
+        }
+
+        .formula-box rect {
+            fill: rgba(0, 0, 0, 0.6);
+            stroke: #555;
+            stroke-width: 1;
+            rx: 4;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="icon-bar">
+        <button class="icon-btn" id="btn-open"><i class="fa-solid fa-folder-open"></i></button>
+        <button class="icon-btn disabled active-mode" id="btn-heatmap" title="Heatmap View"><i
+                class="fa-solid fa-table-cells"></i></button>
+        <button class="icon-btn disabled" id="btn-stairs" title="Line Chart View"><i
+                class="fa-solid fa-stairs"></i></button>
+        <button class="icon-btn disabled" id="btn-markers" title="Markers Only View"><i
+                class="fa-solid fa-shapes"></i></button>
+        <button class="icon-btn" id="btn-save-svg" title="Save SVG"><i class="fa-solid fa-download"></i></button>
+
+        <span class="status-msg" id="status-text">Ready</span>
+        <div style="margin-left:16px; margin-right:0; display:flex; align-items:center; gap:8px; margin-left:auto;">
+            <button class="icon-btn" id="btn-play" title="Play"><i class="fa-solid fa-play"></i></button>
+            <button class="icon-btn" id="btn-pause" title="Pause"><i class="fa-solid fa-pause"></i></button>
+            <button class="icon-btn" id="btn-stop" title="Stop"><i class="fa-solid fa-stop"></i></button>
+            <label style="display:flex; align-items:center; gap:4px; font-size:12px; color:var(--text-sub);">
+                <i class="fa-solid fa-gauge-high"></i>
+                <input type="range" id="speed-slider" min="200" max="2000" value="800" step="100" style="width:80px;">
+            </label>
+        </div>
+    </div>
+    <input type="file" id="file-input" accept=".csv,.txt">
+
+    <div id="main-container">
+        <div id="chart-area">
+            <div class="placeholder" id="placeholder-msg">
+                <i class="fa-solid fa-file-csv"></i>
+                <p>Load Treasury Direct CSV</p>
+            </div>
+        </div>
+        <div id="tooltip" class="tooltip"></div>
+    </div>
+
+    <script>
+
+        // Convert .NET Ticks to JavaScript Date
+        function ticksToDate(ticks) {
+            const EPOCH_DIFF_DAYS = 719163;
+            const EPOCH_DIFF_SECONDS = EPOCH_DIFF_DAYS * 86400;
+            const TICKS_PER_SECOND = 10000000;
+            const total_seconds = Math.floor(Number(ticks) / TICKS_PER_SECOND);
+            const seconds_from_unix_epoch = total_seconds - EPOCH_DIFF_SECONDS;
+            return new Date(seconds_from_unix_epoch * 1000);
+        }
+
+        // Convert JavaScript Date to .NET Ticks
+        function dateToTicks(date) {
+            const EPOCH_DIFF_DAYS = 719163;
+            const EPOCH_DIFF_SECONDS = EPOCH_DIFF_DAYS * 86400;
+            const TICKS_PER_SECOND = 10000000;
+            const seconds_from_unix_epoch = Math.round(date.getTime() / 1000);
+            const total_seconds = seconds_from_unix_epoch + EPOCH_DIFF_SECONDS;
+            return total_seconds * TICKS_PER_SECOND;
+        }
+
+        // --- Auto-load default CSV on page load ---
+        window.addEventListener('DOMContentLoaded', () => {
+            fetch('inputs_csv/i_bond_rates.csv')
+                .then(response => {
+                    if (!response.ok) throw new Error('Default CSV not found');
+                    return response.text();
+                })
+                .then(text => {
+                    if (processCSV(text)) {
+                        // statusText.innerText = `Loaded ${parsedMatrix.length} points (default).`;
+                        btnHeatmap.classList.remove('disabled');
+                        btnStairs.classList.remove('disabled');
+                        btnMarkers.classList.remove('disabled');
+                        renderChart();
+                    } else {
+                        statusText.innerText = 'Error: Invalid default CSV.';
+                    }
+                })
+                .catch(() => {
+                    statusText.innerText = 'Default CSV not found.';
+                });
+        });
+        let parsedMatrix = [];
+        let parsedInflation = [];
+        let viewMode = 'heatmap';
+
+        // --- GLOBAL COLORS FOR D3 (Required for SVG Save) ---
+        const COLORS = {
+            fixedBar: "#00b894",
+            infLine: "#ff7675",
+            zeroRate: "#555555",
+            bg: "#1e1e1e",
+            text: {
+                title: "#aaa",
+                axis: "#888"
+            }
+        };
+
+        // --- Shared Scales ---
+        let xTime, yRate, dynamicLabel;
+
+
+        const btnOpen = document.getElementById('btn-open');
+        const btnHeatmap = document.getElementById('btn-heatmap');
+        const btnStairs = document.getElementById('btn-stairs');
+        const btnMarkers = document.getElementById('btn-markers');
+        const btnSaveSVG = document.getElementById('btn-save-svg');
+        const fileInput = document.getElementById('file-input');
+        const statusText = document.getElementById('status-text');
+        const chartArea = document.getElementById('chart-area');
+        const tooltip = document.getElementById('tooltip');
+        const placeholder = document.getElementById('placeholder-msg');
+        const btnPlay = document.getElementById('btn-play');
+        const btnPause = document.getElementById('btn-pause');
+        const btnStop = document.getElementById('btn-stop');
+        const speedSlider = document.getElementById('speed-slider');
+
+        // --- Animation State ---
+        let animTimer = null;
+        let animIdx = 0;
+        let animActive = false;
+        let animSpeed = parseInt(speedSlider.value, 10) || 800;
+        let animIssues = [];
+
+        function setAnimButtons(state) {
+            btnPlay.disabled = state === 'playing';
+            btnPause.disabled = state !== 'playing';
+            btnStop.disabled = state === 'stopped';
+        }
+
+        function animStep() {
+            if (!animActive || !animIssues.length) return;
+            const issue = animIssues[animIdx];
+            hoverAll(issue);
+            animIdx = (animIdx + 1) % animIssues.length;
+            animTimer = setTimeout(animStep, animSpeed);
+        }
+
+        function startAnim() {
+            if (!parsedMatrix.length) return;
+            animIssues = [...new Set(parsedMatrix.map(d => d.issue))].sort((a, b) => parseIssueDate(b) - parseIssueDate(a));
+            if (!animIssues.length) return;
+            animActive = true;
+            setAnimButtons('playing');
+            if (animIdx >= animIssues.length) animIdx = 0;
+            animStep();
+        }
+
+        function pauseAnim() {
+            animActive = false;
+            setAnimButtons('paused');
+            if (animTimer) clearTimeout(animTimer);
+        }
+
+        function stopAnim() {
+            animActive = false;
+            setAnimButtons('stopped');
+            if (animTimer) clearTimeout(animTimer);
+            animIdx = 0;
+            resetAll();
+        }
+
+        btnPlay.addEventListener('click', startAnim);
+        btnPause.addEventListener('click', pauseAnim);
+        btnStop.addEventListener('click', stopAnim);
+        speedSlider.addEventListener('input', function () {
+            animSpeed = parseInt(this.value, 10) || 800;
+        });
+
+        // Initialize button states
+        setAnimButtons('stopped');
+
+        btnOpen.addEventListener('click', () => fileInput.click());
+
+        btnHeatmap.addEventListener('click', () => { setMode('heatmap'); });
+        btnStairs.addEventListener('click', () => { setMode('stairs'); });
+        btnMarkers.addEventListener('click', () => { setMode('markers'); });
+
+        // --- Save SVG Button Logic ---
+        btnSaveSVG.addEventListener('click', () => {
+            const svg = chartArea.querySelector('svg');
+            if (!svg) {
+                statusText.innerText = 'No plot to save.';
+                return;
+            }
+            const clone = svg.cloneNode(true);
+            const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            bg.setAttribute('width', clone.getAttribute('width'));
+            bg.setAttribute('height', clone.getAttribute('height'));
+
+            // Explicitly set background color for export
+            bg.setAttribute('fill', COLORS.bg);
+
+            clone.insertBefore(bg, clone.firstChild);
+
+            const serializer = new XMLSerializer();
+            let source = serializer.serializeToString(clone);
+            if (!source.match(/^<svg[^>]+xmlns="http:\/\/www.w3.org\/2000\/svg"/)) {
+                source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+            }
+            source = '<?xml version="1.0" standalone="no"?>\r\n' + source;
+
+            const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(source);
+            const a = document.createElement('a');
+            a.href = url;
+            let mode = viewMode.charAt(0).toUpperCase() + viewMode.slice(1);
+            a.download = `ibond_plot_${mode}_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.svg`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            statusText.innerText = 'SVG downloaded.';
+        });
+
+        function setMode(mode) {
+            viewMode = mode;
+            updateButtons();
+            renderChart();
+        }
+
+        function updateButtons() {
+            btnHeatmap.classList.toggle('active-mode', viewMode === 'heatmap');
+            btnStairs.classList.toggle('active-mode', viewMode === 'stairs');
+            btnMarkers.classList.toggle('active-mode', viewMode === 'markers');
+        }
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            statusText.innerText = "Reading file...";
+            reader.onload = (evt) => {
+                if (processCSV(evt.target.result)) {
+                    statusText.innerText = `Loaded ${parsedMatrix.length} points.`;
+                    btnHeatmap.classList.remove('disabled');
+                    btnStairs.classList.remove('disabled');
+                    btnMarkers.classList.remove('disabled');
+                    renderChart();
+                } else {
+                    statusText.innerText = "Error: Invalid CSV.";
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        function safeId(str) {
+            return str.replace(/[^a-zA-Z0-9]/g, '-');
+        }
+
+        function parseIssueDate(issueStr) {
+            if (!issueStr) return new Date(0);
+            const match = issueStr.match(/^(\d{1,2})\/(\d{2})/);
+            if (match) {
+                let m = parseInt(match[1]) - 1;
+                let y = parseInt(match[2]);
+                y = (y >= 90) ? 1900 + y : 2000 + y;
+                return new Date(y, m, 1);
+            }
+            return parseDateKey(issueStr);
+        }
+
+        function parseDateKey(str) {
+            if (!str || !str.includes('-')) return new Date(0);
+            const parts = str.split('-');
+            const m = { "Jan": 0, "Feb": 1, "Mar": 2, "Apr": 3, "May": 4, "Jun": 5, "Jul": 6, "Aug": 7, "Sep": 8, "Oct": 9, "Nov": 10, "Dec": 11 };
+            let y = parseInt(parts[1]);
+            y = (y >= 90) ? 1900 + y : 2000 + y;
+            return new Date(y, m[parts[0]] || 0, 1);
+        }
+
+        function processCSV(text) {
+            try {
+                parsedMatrix = [];
+                parsedInflation = [];
+                const lines = text.split(/\r?\n/);
+
+                let headerRow = -1;
+                let dataStart = -1;
+                let inflationRow = -1;
+                let dateHeaders = [];
+
+                for (let i = 0; i < lines.length; i++) {
+                    const l = lines[i];
+                    if (headerRow === -1 && l.includes("Nov-") && l.includes("May-") && l.includes(",")) headerRow = i;
+                    if (dataStart === -1 && l.match(/^\d{2}\/\d{2}\s-\s\d{2}\/\d{2}/)) dataStart = i;
+                    if (l.toLowerCase().includes("semiannual") && l.toLowerCase().includes("inflation")) inflationRow = i;
+                }
+
+                if (headerRow === -1 || dataStart === -1) return false;
+                dateHeaders = lines[headerRow].split(',').map(s => s.trim()).filter(s => s.length > 0);
+
+                for (let i = dataStart; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (!line || i === inflationRow || line.startsWith('"')) continue;
+                    const cols = line.split(',');
+                    if (cols.length < 2) continue;
+
+                    const issue = cols[0].replace(/['"]/g, '').trim();
+                    const fixed = parseFloat((cols[1] || "").replace('%', '')) || 0;
+
+                    for (let j = 2; j < cols.length; j++) {
+                        let rStr = cols[j];
+                        if (rStr === undefined || rStr.trim() === "") continue;
+                        const dIdx = j - 2;
+                        if (dIdx < dateHeaders.length) {
+                            parsedMatrix.push({
+                                issue: issue,
+                                fixed: fixed,
+                                effective: dateHeaders[dIdx],
+                                rate: parseFloat(rStr.replace('%', ''))
+                            });
+                        }
+                    }
+                }
+
+                if (inflationRow !== -1) {
+                    const infCols = lines[inflationRow].split(',');
+                    let foundRates = [];
+                    for (let k = 0; k < infCols.length; k++) {
+                        const val = infCols[k].trim();
+                        if (val.match(/-?[\d\.]+%?/)) {
+                            const f = parseFloat(val.replace('%', ''));
+                            if (!isNaN(f)) foundRates.push(f);
+                        }
+                    }
+                    foundRates.forEach((rate, idx) => {
+                        if (idx < dateHeaders.length) {
+                            parsedInflation.push({ effective: dateHeaders[idx], rate: rate });
+                        }
+                    });
+                }
+                return parsedMatrix.length > 0;
+            } catch (e) { console.error(e); return false; }
+        }
+
+        function renderChart() {
+            // If animation is running, stop it and reset
+            stopAnim();
+            placeholder.style.display = 'none';
+            d3.select("#chart-area svg").remove();
+
+            const container = document.getElementById('chart-area');
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+
+            const margin = { top: 40, right: 10, bottom: 40, left: 10 };
+            const fixedW = 90;
+            const rightW = 80;
+            const gap = 20;
+            const centerW = w - margin.left - margin.right - fixedW - rightW - (gap * 2);
+            const availH = h - margin.top - margin.bottom;
+            const topH = availH * 0.70;
+            const botH = availH * 0.25;
+            const vGap = availH * 0.05;
+
+            const svg = d3.select("#chart-area").append("svg").attr("width", w).attr("height", h);
+            const gMain = svg.append("g").attr("transform", `translate(${margin.left}, ${margin.top})`);
+
+            // --- Data Prep ---
+            const issues = [...new Set(parsedMatrix.map(d => d.issue))];
+            const issuesSorted = [...issues].sort((a, b) => parseIssueDate(b) - parseIssueDate(a));
+
+            const uniqueFixed = [];
+            issues.forEach(iss => {
+                const row = parsedMatrix.find(d => d.issue === iss);
+                if (row) uniqueFixed.push({ issue: iss, fixed: row.fixed });
+            });
+
+            const dates = [...new Set(parsedMatrix.map(d => d.effective))];
+            dates.sort((a, b) => parseDateKey(a) - parseDateKey(b));
+
+            parsedInflation.sort((a, b) => parseDateKey(a.effective) - parseDateKey(b.effective));
+
+            // --- Scales ---
+            const ySide = d3.scaleBand().range([0, topH]).domain(issuesSorted).padding(0.1);
+            const maxFixed = d3.max(uniqueFixed, d => d.fixed) || 3;
+            // Reverse the scale: 0% at right, max at left
+            const xFixedNormal = d3.scaleLinear().range([fixedW, 0]).domain([0, maxFixed]);
+            xTime = d3.scaleBand().range([0, centerW]).domain(dates).padding(0);
+
+            const minInf = d3.min(parsedInflation, d => d.rate) || 0;
+            const maxInf = d3.max(parsedInflation, d => d.rate) || 5;
+            const yInf = d3.scaleLinear().range([botH, 0]).domain([Math.min(0, minInf), maxInf]);
+
+            // --- Color & Shape ---
+            const colorPalette = [
+                "#FF0000", "#FF2400", "#DC143C", "#E32636", "#FF007F", "#FF1493",
+                "#FF4500", "#FF6347", "#FF7F50", "#F08080", "#CD5C5C", "#DE3163",
+                "#B22222", "#8B0000", "#800000", "#A52A2A", "#A0522D", "#8B4513",
+                "#800020", "#722F37", "#420D09", "#5D3954", "#480607", "#2B1B17",
+                "#00FFFF", "#00BFFF", "#1E90FF", "#00CED1", "#40E0D0", "#48D1CC",
+                "#00FF7F", "#7FFFD4", "#6495ED", "#4682B4", "#5F9EA0", "#87CEEB",
+                "#0000FF", "#0000CD", "#4169E1", "#00008B", "#000080", "#191970",
+                "#483D8B", "#0047AB", "#0F52BA", "#002366", "#2F4F4F", "#003366",
+                "#DCDCDC", "#D3D3D3", "#C0C0C0", "#A9A9A9", "#808080", "#696969",
+                "#778899", "#708090", "#36454F", "#2F4F4F", "#1C1C1C", "#444444"
+            ];
+
+            const colorHeat = d3.scaleSequential(d3.interpolateTurbo).domain([0, d3.max(parsedMatrix, d => d.rate)]);
+
+            const getIssueColor = (issueStr) => {
+                const i = issuesSorted.indexOf(issueStr);
+                const colorIdx = Math.min(i, colorPalette.length - 1);
+                return colorPalette[colorIdx];
+            };
+
+            const shapeScale = d3.scaleOrdinal()
+                .domain(issuesSorted)
+                .range(d3.symbols.map(s => d3.symbol().type(s).size(10)()));
+
+            // --- Left Panel (Fixed Rates) ---
+            const gLeft = gMain.append("g");
+            gLeft.append("line").attr("x1", fixedW).attr("x2", fixedW).attr("y1", 0).attr("y2", topH).attr("class", "panel-divider");
+
+            gLeft.selectAll("rect")
+                .data(uniqueFixed)
+                .join("rect")
+                .attr("class", "fixed-bar")
+                .attr("id", d => "bar-" + safeId(d.issue))
+                .attr("x", d => xFixedNormal(d.fixed))
+                .attr("y", d => ySide(d.issue))
+                .attr("height", ySide.bandwidth())
+                .attr("width", d => fixedW - xFixedNormal(d.fixed))
+                .attr("fill", COLORS.fixedBar) // HARDCODED FOR SVG SAVE
+                .on("mouseover", (e, d) => hoverAll(d.issue))
+                .on("mouseout", resetAll);
+
+            gLeft.append("g").attr('class', 'axis').call(d3.axisTop(xFixedNormal).ticks(2).tickFormat(d => d + "%")).selectAll('text').style('fill', COLORS.text.axis).style('font-size', '10px').style('font-family', "'Segoe UI', sans-serif");
+            // Axis is now reversed, so ticks/labels match bar direction
+            gLeft.append("text").attr("x", fixedW / 2).attr("y", -25).attr("class", "panel-title").attr("text-anchor", "middle").text("Fixed Rate").attr("fill", COLORS.text.title).style("font-size", "10px").style("font-weight", "bold").style("text-transform", "uppercase").style("letter-spacing", "0.5px").style("font-family", "'Segoe UI', sans-serif");
+
+            // --- Right Panel (Legend/List) ---
+            const gRight = gMain.append("g").attr("transform", `translate(${fixedW + gap + centerW + gap}, 0)`);
+            gRight.append("line").attr("x1", 0).attr("x2", 0).attr("y1", 0).attr("y2", topH).attr("class", "panel-divider");
+
+            const rightRows = gRight.selectAll(".right-row")
+                .data(uniqueFixed)
+                .join("g")
+                .attr("class", "right-row")
+                .attr("id", d => "row-" + safeId(d.issue))
+                .attr("transform", d => `translate(0, ${ySide(d.issue) + ySide.bandwidth() / 2})`)
+                .on("mouseover", (e, d) => hoverAll(d.issue))
+                .on("mouseout", resetAll);
+
+            rightRows.append("path")
+                .attr("d", d => shapeScale(d.issue))
+                .attr("transform", "translate(10, 0)")
+                .attr("fill", d => viewMode === 'heatmap' ? "#555" : getIssueColor(d.issue));
+
+            rightRows.append("text")
+                .attr("x", 24)
+                .attr("dy", "0.35em")
+                .text(d => d.issue)
+                .attr("lc_legend_id", d => "lc_legend_" + safeId(d.issue))
+                .style("fill", d => viewMode === 'heatmap' ? "#888" : getIssueColor(d.issue))
+                .style('font-size', '10px').style('font-family', 'monospace').style('font-weight', 'bold');
+
+            gRight.append("text").attr("x", rightW / 2).attr("y", -25).attr("class", "panel-title").attr("text-anchor", "middle").text("Issue Date").attr("fill", COLORS.text.title).style("font-size", "10px").style("font-weight", "bold").style("text-transform", "uppercase").style("letter-spacing", "0.5px").style("font-family", "'Segoe UI', sans-serif");
+
+            // --- Center Panel ---
+            const gCenter = gMain.append("g").attr("transform", `translate(${fixedW + gap}, 0)`);
+
+            dynamicLabel = gCenter.append("g")
+                .attr("class", "dynamic-label")
+                .style("opacity", 0)
+                .style("pointer-events", "none");
+
+            dynamicLabel.append("text")
+                .attr("text-anchor", "start")
+                .attr("dy", "0.35em")
+                .style("font-size", "13px").style("font-weight", "bold").style("fill", "#fff").style("paint-order", "stroke").style("stroke", "#1e1e1e").style("stroke-width", "4px").style("stroke-linejoin", "round").style("font-family", "'Segoe UI', sans-serif");
+
+
+            if (viewMode === 'heatmap') {
+                gCenter.selectAll("rect")
+                    .data(parsedMatrix)
+                    .join("rect")
+                    .attr("x", d => xTime(d.effective)).attr("y", d => ySide(d.issue))
+                    .attr("width", xTime.bandwidth()).attr("height", ySide.bandwidth())
+                    .attr("fill", d => (Math.abs(d.rate) < 0.001) ? COLORS.zeroRate : colorHeat(d.rate)) // HARDCODED
+                    .attr("stroke", "#222").attr("stroke-width", 0.5)
+                    .on("mouseover", (e, d) => {
+                        showTip(e, `<b>${d.issue}</b><br>${d.effective}: ${d.rate}%`);
+                        highlightInflation(d.effective);
+                    })
+                    .on("mousemove", moveTip).on("mouseout", () => {
+                        hideTip();
+                        resetAll();
+                    });
+
+                const ann = gCenter.append("g").attr("class", "formula-box").attr("transform", "translate(0,-50)");
+                ann.append("rect").attr("x", -5).attr("y", -12).attr("width", 410).attr("height", 18);
+                ann.append("text").attr("x", 0).attr("y", 0).text("Composite = Fixed + (2 × Inflation) + (Fixed × Inflation)").style("font-family", "monospace").style("font-size", "11px").style("fill", "#ddd");
+                gCenter.append("text").attr("x", centerW / 2).attr("y", -20).attr("text-anchor", "middle").attr("class", "panel-title").text("I-Bond Composite Rate History").attr("fill", COLORS.text.title).style("font-size", "10px").style("font-weight", "bold").style("text-transform", "uppercase").style("letter-spacing", "0.5px").style("font-family", "'Segoe UI', sans-serif");
+
+                drawLegend(svg, w, colorHeat, d3.max(parsedMatrix, d => d.rate));
+
+            } else {
+                const maxRate = d3.max(parsedMatrix, d => d.rate);
+                yRate = d3.scaleLinear().range([topH, 0]).domain([0, maxRate]);
+
+                gCenter.append("g").attr("class", "grid-y").call(d3.axisLeft(yRate).tickSize(-centerW).tickFormat(""));
+                d3.selectAll(".grid-y line").style("stroke", "#333").style("stroke-dasharray", "2");
+                gCenter.append("g").attr('class', 'axis').call(d3.axisLeft(yRate)).selectAll('text').style('fill', COLORS.text.axis).style('font-size', '10px').style('font-family', "'Segoe UI', sans-serif");
+                gCenter.append("text").attr("transform", "rotate(-90)").attr("x", -topH / 2).attr("y", -35).attr("class", "panel-title").text("I-Bond Composite Rate %").attr("fill", COLORS.text.title).style("font-size", "10px").style("font-weight", "bold").style("text-transform", "uppercase").style("letter-spacing", "0.5px").style("font-family", "'Segoe UI', sans-serif");
+
+                const nested = d3.group(parsedMatrix, d => d.issue);
+                const sortedNested = [...nested].sort((a, b) => parseIssueDate(a[0]) - parseIssueDate(b[0]));
+
+                if (viewMode === 'stairs') {
+                    const startDate = parseDateKey(dates[0]);
+                    const endDate = parseDateKey(dates[dates.length - 1]);
+                    const startTicks = dateToTicks(startDate);
+                    const endTicks = dateToTicks(endDate);
+                    const xOffset = margin.left + fixedW + gap;
+                    const yOffset = margin.top;
+                    svg.attr("xlm", JSON.stringify([startTicks, endTicks, xOffset, xOffset + centerW]))
+                        .attr("ylm", JSON.stringify([0, maxRate, yOffset, yOffset + topH]));
+
+                    const lineGen = d3.line()
+                        .x(d => xTime(d.effective) + xTime.bandwidth() / 2)
+                        .y(d => yRate(d.rate))
+                        .curve(d3.curveStepAfter);
+
+                    gCenter.selectAll("path")
+                        .data(sortedNested)
+                        .join("path")
+                        .attr("class", "bond-line")
+                        .attr("id", ([k, v]) => "line-" + safeId(k))
+                        .attr("lc_legend_Ref", ([k, v]) => "lc_legend_ref_" + safeId(k))
+                        .attr("d", ([k, v]) => {
+                            v.sort((a, b) => parseDateKey(a.effective) - parseDateKey(b.effective));
+                            return lineGen(v);
+                        })
+                        .attr("stroke", ([k, v]) => getIssueColor(k))
+                        .attr("fill", "none")
+                        .on("mouseover", (e, [k, v]) => {
+                            hoverAll(k);
+                            showTip(e, `<b>${k}</b><br>Fixed: ${v[0].fixed}%`);
+                        })
+                        .on("mousemove", moveTip).on("mouseout", () => {
+                            resetAll();
+                            hideTip();
+                        });
+                    gCenter.append("text").attr("x", centerW / 2).attr("y", -20).attr("text-anchor", "middle").attr("class", "panel-title").text("I-Bond Composite Rate Trends").attr("fill", COLORS.text.title).style("font-size", "10px").style("font-weight", "bold").style("text-transform", "uppercase").style("letter-spacing", "0.5px").style("font-family", "'Segoe UI', sans-serif");
+                }
+                else if (viewMode === 'markers') {
+
+                    const startDate = parseDateKey(dates[0]);
+                    const endDate = parseDateKey(dates[dates.length - 1]);
+                    const startTicks = dateToTicks(startDate);
+                    const endTicks = dateToTicks(endDate);
+                    const xOffset = margin.left + fixedW + gap;
+                    const yOffset = margin.top;
+                    svg.attr("xlm", JSON.stringify([startTicks, endTicks, xOffset, xOffset + centerW]))
+                        .attr("ylm", JSON.stringify([0, maxRate, yOffset, yOffset + topH]));
+                    const groups = gCenter.selectAll(".marker-group")
+                        .data(sortedNested)
+                        .join("g")
+                        .attr("class", d => "marker-group grp-" + safeId(d[0]))
+                        .attr("fill", d => getIssueColor(d[0]))
+                        .attr("stroke", d => getIssueColor(d[0]));
+
+                    const points = groups.selectAll("g.pt-wrapper")
+                        .data(d => d[1].sort((a, b) => parseDateKey(a.effective) - parseDateKey(b.effective)))
+                        .join("g")
+                        .attr("class", "pt-wrapper")
+                        .attr("transform", d => `translate(${xTime(d.effective) + xTime.bandwidth() / 2}, ${yRate(d.rate)})`);
+
+                    points.append("path")
+                        .attr("class", "marker-point")
+                        .attr("d", d => shapeScale(d.issue))
+                        .attr("lc_legend_id", d => "lc_legend_" + safeId(d.issue))
+                        .on("mouseover", (e, d) => {
+                            hoverAll(d.issue);
+                            showTip(e, `<b>${d.issue}</b><br>${d.effective}<br>Rate: ${d.rate}%`);
+                            highlightInflation(d.effective);
+                        })
+                        .on("mousemove", moveTip)
+                        .on("mouseout", () => {
+                            resetAll();
+                            hideTip();
+                        });
+
+                    gCenter.append("text").attr("x", centerW / 2).attr("y", -20).attr("text-anchor", "middle").attr("class", "panel-title").text("I-Bond Composite Rate History (Marker Series)").attr("fill", COLORS.text.title).style("font-size", "10px").style("font-weight", "bold").style("text-transform", "uppercase").style("letter-spacing", "0.5px").style("font-family", "'Segoe UI', sans-serif");
+                }
+            }
+
+            // --- Bottom Panel ---
+            const gInf = gMain.append("g").attr("transform", `translate(${fixedW + gap}, ${topH + vGap})`);
+            gInf.append("line").attr("x1", 0).attr("x2", centerW).attr("y1", yInf(0)).attr("y2", yInf(0)).attr("stroke", "#555");
+            const area = d3.area().x(d => xTime(d.effective) + xTime.bandwidth() / 2).y0(yInf(0)).y1(d => yInf(d.rate)).curve(d3.curveMonotoneX);
+            gInf.append("path").datum(parsedInflation).attr("d", area).attr("fill", "rgba(225, 112, 85, 0.2)").attr("stroke", COLORS.infLine).attr("stroke-width", 2);
+
+            gInf.selectAll("circle").data(parsedInflation).join("circle")
+                .attr("class", "inf-dot")
+                .attr("id", d => "inf-" + safeId(d.effective))
+                .attr("cx", d => xTime(d.effective) + xTime.bandwidth() / 2).attr("cy", d => yInf(d.rate)).attr("r", 3).attr("fill", COLORS.infLine)
+                .on("mouseover", (e, d) => showTip(e, `Inflation: ${d.rate}%`)).on("mousemove", moveTip).on("mouseout", hideTip);
+
+            gInf.append("g").attr('class', 'axis').call(d3.axisLeft(yInf).ticks(4)).selectAll('text').style('fill', COLORS.text.axis).style('font-size', '10px').style('font-family', "'Segoe UI', sans-serif");
+            gInf.append("text").attr("transform", "rotate(-90)").attr("x", -botH / 2).attr("y", -35).attr("class", "panel-title").style("fill", COLORS.infLine).text("Inflation").style("font-size", "10px").style("font-weight", "bold").style("text-transform", "uppercase").style("letter-spacing", "0.5px").style("font-family", "'Segoe UI', sans-serif");
+
+            const tickDates = dates.filter((d, i) => i % Math.ceil(dates.length / 20) === 0);
+            const gX = gInf.append("g").attr("transform", `translate(0, ${botH})`).attr('class', 'axis').call(d3.axisBottom(xTime).tickValues(tickDates));
+            gX.selectAll("text").style("text-anchor", "end").attr("dx", "-.8em").attr("dy", ".15em").attr("transform", "rotate(-45)").style('fill', COLORS.text.axis).style('font-size', '10px').style('font-family', "'Segoe UI', sans-serif");
+
+            const gGrid = gMain.append("g").attr("transform", `translate(${fixedW + gap}, 0)`);
+            gGrid.selectAll("line").data(tickDates).join("line").attr("class", "grid-line")
+                .attr("x1", d => xTime(d) + xTime.bandwidth() / 2).attr("x2", d => xTime(d) + xTime.bandwidth() / 2)
+                .attr("y1", 0).attr("y2", topH + vGap + botH);
+        }
+
+        function highlightInflation(dateStr) {
+            d3.selectAll(".inf-dot").classed("highlighted", false);
+            d3.select("#inf-" + safeId(dateStr)).classed("highlighted", true).raise();
+        }
+
+        function hoverAll(issue) {
+            // Always highlight only the current issue, clear all others
+            resetAll();
+            const sid = safeId(issue);
+
+            d3.selectAll(".fixed-bar").classed("dimmed", true);
+            d3.select("#bar-" + sid).classed("dimmed", false).classed("highlighted", true);
+
+            d3.selectAll(".right-row").classed("dimmed", true);
+            d3.select("#row-" + sid).classed("dimmed", false).classed("highlighted", true);
+
+            const bondData = parsedMatrix.filter(d => d.issue === issue);
+            if (bondData.length > 0) {
+                bondData.sort((a, b) => parseDateKey(a.effective) - parseDateKey(b.effective));
+                highlightInflation(bondData[0].effective);
+
+                if (viewMode !== 'heatmap' && xTime && yRate && dynamicLabel) {
+                    const lastPt = bondData[bondData.length - 1];
+                    const cx = xTime(lastPt.effective) + xTime.bandwidth() / 2;
+                    const cy = yRate(lastPt.rate);
+
+                    dynamicLabel.style("opacity", 1)
+                        .attr("transform", `translate(${cx + 8}, ${cy})`)
+                        .raise();
+
+                    dynamicLabel.select("text").text(lastPt.rate + "%");
+                }
+            }
+
+            if (viewMode === 'stairs') {
+                d3.selectAll(".bond-line").classed("dimmed", true);
+                d3.select("#line-" + sid).classed("dimmed", false).classed("highlighted", true).raise();
+            } else if (viewMode === 'markers') {
+                d3.selectAll(".marker-group").classed("dimmed", true);
+                d3.selectAll(".grp-" + sid).classed("dimmed", false).classed("highlighted", true).raise();
+            }
+        }
+
+        function resetAll() {
+            d3.selectAll(".fixed-bar").classed("dimmed", false).classed("highlighted", false);
+            d3.selectAll(".right-row").classed("dimmed", false).classed("highlighted", false);
+            d3.selectAll(".bond-line").classed("dimmed", false).classed("highlighted", false);
+            d3.selectAll(".marker-group").classed("dimmed", false).classed("highlighted", false);
+            d3.selectAll(".inf-dot").classed("highlighted", false);
+            if (dynamicLabel) dynamicLabel.style("opacity", 0);
+        }
+
+        function drawLegend(svg, w, color, max) {
+            const defs = svg.append("defs");
+            const gradId = "grad-heat";
+            const grad = defs.append("linearGradient").attr("id", gradId);
+            grad.selectAll("stop").data(d3.range(0, 1.1, 0.1)).enter().append("stop").attr("offset", d => d).attr("stop-color", d => color(d * max));
+            const g = svg.append("g").attr("transform", `translate(${w - 180}, 10)`);
+            g.append("text").text("Yield Intensity").attr("fill", "#aaa").style("font-size", "10px");
+            g.append("rect").attr("y", 5).attr("width", 140).attr("height", 8).attr("fill", `url(#${gradId})`);
+            g.append("rect").attr("x", -15).attr("y", 5).attr("width", 10).attr("height", 8).attr("fill", COLORS.zeroRate);
+            g.append("text").attr("x", -15).attr("y", 22).text("0%").attr("fill", "#aaa").style("font-size", "9px");
+            g.append("text").attr("x", 140).attr("y", 22).text(max.toFixed(1) + "%").attr("text-anchor", "end").attr("fill", "#aaa").style("font-size", "9px");
+        }
+
+        function showTip(e, html) { tooltip.style.opacity = 1; tooltip.innerHTML = html; }
+        function moveTip(e) {
+            const box = chartArea.getBoundingClientRect();
+            let l = e.pageX + 15, t = e.pageY + 15;
+            if (l + 180 > box.right) l = e.pageX - 180;
+            if (t + 100 > box.bottom) t = e.pageY - 100;
+            tooltip.style.left = l + "px"; tooltip.style.top = t + "px";
+        }
+        function hideTip() { tooltip.style.opacity = 0; }
+        window.onresize = () => { if (parsedMatrix.length) renderChart(); };
+
+    </script>
+</body>
+
+</html>
